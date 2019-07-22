@@ -134,6 +134,7 @@ public class CubeConstants {
 
     static class ComputationLogic {
         // normal vectors
+        //法向量
         static final double[][] faceNormals = {
                 {0.0, -1.0, 0.0}, // U
                 {0.0, 1.0, 0.0}, // D
@@ -141,8 +142,10 @@ public class CubeConstants {
                 {0.0, 0.0, 1.0}, // B
                 {-1.0, 0.0, 0.0}, // L
                 {1.0, 0.0, 0.0}  // R
+                //上下为y轴(下为正),左右为x轴(右为正),里外为z轴(里为正)
         };
         // vertex co-ordinates
+        //中心到顶角的向量
         static final double[][] cornerCoords = {
                 {-1.0, -1.0, -1.0}, // UFL
                 {1.0, -1.0, -1.0}, // UFR
@@ -154,6 +157,7 @@ public class CubeConstants {
                 {-1.0, 1.0, 1.0}  // DBL
         };
         // vertices of each face
+        //每个面的顶点
         static final int[][] faceCorners = {
                 {0, 1, 2, 3}, // U: UFL UFR UBR UBL
                 {4, 7, 6, 5}, // D: DFL DBL DBR DFR

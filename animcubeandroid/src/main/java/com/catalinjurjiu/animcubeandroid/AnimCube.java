@@ -3,11 +3,16 @@ package com.catalinjurjiu.animcubeandroid;
 import android.app.Activity;
 import android.app.Fragment;
 import android.content.Context;
+import android.content.res.Resources;
 import android.content.res.TypedArray;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.Rect;
+import android.graphics.RectF;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -63,6 +68,7 @@ import static com.catalinjurjiu.animcubeandroid.CubeUtils.vNorm;
 import static com.catalinjurjiu.animcubeandroid.CubeUtils.vProd;
 import static com.catalinjurjiu.animcubeandroid.CubeUtils.vScale;
 import static com.catalinjurjiu.animcubeandroid.CubeUtils.vSub;
+import static java.awt.font.TextAttribute.WIDTH;
 
 /**
  * <p>
@@ -99,19 +105,38 @@ import static com.catalinjurjiu.animcubeandroid.CubeUtils.vSub;
  * Good places to call this are {@link Activity#onDestroy()} & {@link Fragment#onDestroyView()}.
  * </p>
  */
+        /*视图能够显示一个3D魔方，支持通过触摸手势和动画的一系列动作互动。*要动画一系列移动，可用下列方法：
+        {@link#动画MoveSequence()}、{@link#activateMoveSequenceReversed()}、{@link#动画MoateMove()}
+        *和{@link#activateMoveReversed()}。也可以通过下列方法之一应用没有动画的动作：
+        {@link#applyMoveSequence()}、{@link#applyMoveSequenceReversed()}、*{@link#applyMoyMove()}
+        和{@link#applyMoveReversed()。*默认情况下，通过触摸手势进行用户交互是启用的，但可以通过
+        {@link#setEdable(布尔值)}进行自定义。*此外，当多维数据集的数据模型被更改或某个动画完成时，
+        该对象能够通知感兴趣的各方。*<p>对多维数据集模型的更改可以在两种情况下发生：
+        *<li>当一个移动序列被动画化时，多维数据集模型随每次移动而发生更改；</li>
+        <li>当多维数据集可编辑并且用户手动旋转一个面时。</li>*要通过这些更改通知，可以设置一个
+        {@link OnCubeUpdatedListener}。*为了在动画完成或某一移动被立即应用时得到通知，
+        请使用{@link OnCubeAnimationFinishedListener}。*重要：*此视图是{@LinkSurfaceView}的子类，
+        并在一个专用线程上执行动画。为了确保该对象*所持有的资源被优雅地释放，
+        总是在此视图的父视图被销毁时调用{@link#leanUpResources()}。
+        *{@link Activity#onDesty()}是很好的调用它地方。*/
 @SuppressWarnings("unused")
+
+
 public class AnimCube extends SurfaceView implements View.OnTouchListener {
     public static final String TAG = "AnimCube";
     private static final int NOTIFY_LISTENER_ANIMATION_FINISHED = 4242;
     private static final int NOTIFY_LISTENER_MODEL_UPDATED = 2424;
     // cube facelets
+    //魔方块
     private final int[][] cube = new int[6][9];
     private final int[][] initialCube = new int[6][9];
     // initial observer co-ordinate axes (view)
+    //初始化观测坐标
     private final double[] eye = {0.0, 0.0, -1.0};
     private final double[] eyeX = {1.0, 0.0, 0.0}; // (sideways)
     private final double[] eyeY = new double[3]; // (vertical)
     // sub cube dimensions
+    //子块数据集
     private final int[][][] topBlocks = new int[6][][];
     private final int[][][] midBlocks = new int[6][][];
     private final int[][][] botBlocks = new int[6][][];
@@ -121,6 +146,7 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
     private final double[] dragDirsX = new double[18];
     private final double[] dragDirsY = new double[18];
     // temporary eye vectors for twisted sub-cube rotation
+    //子块扭转的临时观测向量
     private final double[] tempEye = new double[3];
     private final double[] tempEyeX = new double[3];
     private final double[] tempEyeY = new double[3];
@@ -129,6 +155,7 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
     private final double[] tempEyeX2 = new double[3];
     private final double[] tempEyeY2 = new double[3];
     // temporary vectors to compute visibility in perspective projection
+    //用于计算透视投影中可见性的临时向量
     private final double[] perspEye = new double[3];
     private final double[] perspEyeI = new double[3];
     private final double[] perspNormal = new double[3];
@@ -138,9 +165,11 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
     private final double[][] eyeArrayY = new double[3][];
     private final int[][][][] blockArray = new int[3][][][];
     // polygon co-ordinates to fill (cube faces or facelets)
+    //多边形坐标填充(立方体面或小面)
     private final int[] fillX = new int[4];
     private final int[] fillY = new int[4];
     // projected vertex co-ordinates (to screen)
+    //投影顶点坐标(到屏幕)
     private final double[] coordsX = new double[8];
     private final double[] coordsY = new double[8];
     private final double[][] cooX = new double[6][4];
@@ -148,9 +177,11 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
     private final double[] tempNormal = new double[3];
     private final double[] eyeD = new double[3];
     private final Path path = new Path();
-    private final Object animThreadLock = new Object(); // lock object for the animation thread
+    // lock object for the animation thread
+    //为动画线程锁定对象。
+    private final Object animThreadLock = new Object();
     private final int[] cubeColors = new int[6];
-    private final int[] dragLayers = new int[18]; // which layers belongs to dragCorners
+    private final int[] dragLayers = new int[18]; // which layers belongs to dragCorners / 拖动角
     private final int[] dragModes = new int[18]; // which layer modes dragCorners
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     // background colors
@@ -161,13 +192,14 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
     private int twistedLayer;
     private int twistedMode;
     // angle of rotation of the twistedLayer
+    //扭转层旋转角
     private double currentAngle; // edited angle of twisted layer
     private double originalAngle; // angle of twisted layer
     // animation speed
     private int speed;
     private int doubleSpeed;
     // current state of the program
-    private boolean natural = true; // cube is compact, no layer is twisted
+    private boolean natural = true; // cube is compact, no layer is twisted /立方体是紧凑的，没有层是扭曲的。
     private boolean toTwist; // layer can be twisted
     private boolean interrupted; // thread was interrupted
     private boolean restarted; // animation was stopped
@@ -175,9 +207,9 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
     private boolean twisting; // a user twists a cube layer
     private boolean spinning; // an animation twists a cube layer
     private boolean animating; // animation run
-    private int perspective; // perspective deformation
-    private double scale; // cube scale
-    private int align; // cube alignment (top, center, bottom)
+    private int perspective; // perspective deformation /远景
+    private double scale; // cube scale /规模，比例
+    private int align; // cube alignment (top, center, bottom) /队列
     private boolean showBackFaces;
     private double faceShift;
     // move sequence data
@@ -191,6 +223,7 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
     private int width;
     private int height;
     // last position of mouse (for dragging the cube)
+    //鼠标的最后位置(用于拖动立方体)
     private int lastX;
     private int lastY;
     // last position of mouse (when waiting for clear decision)
@@ -233,7 +266,6 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
         }
     };
     private SurfaceHolder.Callback surfaceCallback = new SurfaceHolder.Callback() {
-
         @Override
         public void surfaceCreated(SurfaceHolder holder) {
             synchronized (animThreadLock) {
@@ -245,12 +277,10 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
                 repaint();
             }
         }
-
         @Override
         public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
             repaint();
         }
-
         @Override
         public void surfaceDestroyed(SurfaceHolder holder) {
             stopAnimationAndDrawing();
@@ -274,14 +304,13 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
 
     /**
      * <p>
-     * Returns an {@code int[6][9]} representing the current cube model. Each integer in the array is a {@link CubeColors} and represents the color for a particular
-     * facelet.
+     * Returns an {@code int[6][9]} representing the current cube model.
+     * Each integer in the array is a {@link CubeColors} and represents the color for a particular facelet.
      * </p>
      * <p>
-     * If custom colors have been defined, then a mapping between {@link CubeColors} and the custom color scheme needs to be performed, as the integers in the
-     * array will still be values from {@link CubeColors}.
+     * If custom colors have been defined, then a mapping between {@link CubeColors} and the custom
+     * color scheme needs to be performed, as the integers in the array will still be values from {@link CubeColors}.
      * </p>
-     *
      * @return an {code int[6][9] containing the cube colors for each facelet}
      */
     public int[][] getCubeModel() {
@@ -292,13 +321,15 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
 
     /**
      * <p>
-     * Sets the cube in the specified state. This method expects a {@link String} with exactly 54 characters (i.e. 9 facelets on each cube face * 6 cube faces). If the string
-     * is of different length, nothing will happen.
+     * Sets the cube in the specified state. This method expects a {@link String} with exactly 54 characters
+     * (i.e. 9 facelets on each cube face * 6 cube faces). If the string is of different length, nothing will happen.
      * </p>
      * <p>
-     * The string needs to be a sequence of integers specified in {@link CubeColors}. Each integer specifies the color of one cube facelet. Additionally, the
-     * order in which faces are specified is not relevant, since {@link AnimCube} doesn't care about the cube model that much. The specified model doesn't even have to be a
-     * valid Rubik's cube.
+     * The string needs to be a sequence of integers specified in {@link CubeColors}.
+     * Each integer specifies the color of one cube facelet. Additionally, the
+     * order in which faces are specified is not relevant, since {@link AnimCube}
+     * doesn't care about the cube model that much. The specified model doesn't
+     * even have to be a valid Rubik's cube.
      * </p>
      * <p>
      * For example:<br>
@@ -311,6 +342,7 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
      *
      * @param colorValues a {@link String} of integers in the format described above.
      */
+    //将颜色代号字符串转化为二维整形数组
     public void setCubeModel(String colorValues) {
         boolean wasValid = setStringCubeModelInternal(colorValues);
         if (wasValid) {
@@ -449,14 +481,16 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
 
     /**
      * <p>
-     * Sets the sequence of moves that need to be performed by {@link AnimCube} (and optionally, animated). Some of the moves affect centers and they can be moved to another layer from the user's point of
+     * Sets the sequence of moves that need to be performed by {@link AnimCube} (and optionally, animated).
+     * Some of the moves affect centers and they can be moved to another layer from the user's point of
      * view. Such movements <b>do not affect</b> the notation from the user's point of view. The characters are not fixed to particular centers.
      * </p>
-     * <p>For example, if an "M" is performed and then an "F" is needed, it should affect the front layer seen in the front position and not the bottom layer, where the center that was in the front position
+     * <p>For example, if an "M" is performed and then an "F" is needed, it should affect the front
+     * layer seen in the front position and not the bottom layer, where the center that was in the front position
      * is now placed. The chosen way is very familiar to the "corner-starters" (solving the cube starting from the corners).
      * </p>
      * <p>
-     * The sequence is defined in extended Singmaster's notation. The basis for the turns are six letters of the following meaning.
+     * The sequence is defined in extended Sing master's notation. The basis for the turns are six letters of the following meaning.
      * <ul>
      * <li>U - Up (rotate top layer)</li>
      * <li>D - Down (rotate bottom layer)</li>
@@ -467,17 +501,24 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
      * </ul>
      * </p>
      * <p>
+     *     区分大小写
      * The letter case is important here, because the same - but lowercase - letters are used for different moves. Modifiers can be appended to the move character.
      * <ul>
+     *     单独的字符意味着将对应的图层按时钟方向旋转90度.附加撇号“‘”或数字“3”意味着逆时针转动90度。
+     *     附加数字“2”意味着对应层的180度旋转(时钟方向)。您可以使用组合“2‘”的双计数器时钟转向。
+     *     如果您想在使用手指快捷键时显示最有效的方向，则此组合非常有用。*</li
      * <li>Separate characters mean turning the corresponding layer 90 degrees clock-wise.</li>
      * <li>Appending apostrophe "'" or digit "3" means turning 90 degrees counter clock-wise.</li>
      * <li>Appending digit "2" means 180 degrees rotation of the corresponding layer (clock-wise).</li>
-     * <li>You can use combination "2'" for double counter clock-wise turn. This combination is useful if you want to show the most efficient directions when using finger shortcuts.
+     * <li>You can use combination "2'" for double counter clock-wise turn.
+     * This combination is useful if you want to show the most efficient directions when using finger shortcuts.
      * </li>
      * </ul>
      * </p>
      * <p>
-     * There are also some advanced modifiers that are written immediately after the move letter and right before the basic modifiers already defined. The possible modifiers are:
+     * There are also some advanced modifiers that are written immediately after
+     * the move letter and right before the basic modifiers already defined. The possible modifiers are:
+     * 还有一些高级修饰符是在移动字母之后立即编写的，并且是在已经定义的基本修饰符之前编写的。可能的修饰符是：
      * <ul>
      * <li>m - middle layer turn between the specified layer and the opposite one</li>
      * <li>c - whole-cube turn in the direction of the specified layer</li>
@@ -497,7 +538,7 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
      * <p>
      * The library also supports turns of the entire cube. This feature can be used to rotate the cube in order to show the cube in the best position for the current situation to watch the move sequence. The available symbols to rotate the cube are shown in the following table (they can be also combined with the modifiers).
      * <ul>
-     * <li> X - rotate around x-axis (in the same direction as "R" or "L'" is performed)</li>
+     * <li>X - rotate around x-axis (in the same direction as "R" or "L'" is performed)</li>
      * <li>Y - rotate around y-axis (in the same direction as "F" or "B'" is performed)</li>
      * <li>Z - rotate around z-axis (in the same direction as "U" or "D'" is performed)</li>
      * </ul>
@@ -515,13 +556,13 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
      * </p>
      * <p>
      * There is yet another character to be used in the parameter value - the dot '.' character. When a dot is found in the sequence during playing the animation, it is delayed for a half of the time the quarter turn is performed.
-     * </p>
+     * </p>++++++++
      * <p><b>Important:</b> In Josef Jelinek's original AnimCube applet there could be several move sequences specified in the same string. The sequences were separated by the semicolon character ';'. This feature however is disabled in this version.<br>
      * If the move sequence string passed to this method has more than one move sequences defined, only the first will be taken into consideration, and the next will be ignored.</p>
      * <p><b>Note:</b> For additional details and a few left out alternatives to certain notations, see Josef's complete documentation for the move sequence <a href="http://software.rubikscube.info/AnimCube/#move">here.</a></p>
      *
      * @param moveSequence a {@link String} containing the desired move sequence, using the format described above.
-     * @see <a href="http://software.rubikscube.info/AnimCube/#move">Josef's Jelinek complete documentation for the move sequence.</a>
+     * @see <a href="http://software.rubikscube.info-/AnimCube/#move">Josef's Jelinek complete documentation for the move sequence.</a>
      */
     public void setMoveSequence(String moveSequence) {
         move = getMove(moveSequence);
@@ -534,6 +575,7 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
      * <li>stopping any running animation</li>
      * <li>resetting the facelets colors to their initial state</li>
      * <li>resetting the move counter to the start of the currently defined move sequence.</li>
+     * 将移动计数器重置为当前定义的移动序列的开始。
      * </ul>
      * </p>
      *
@@ -642,7 +684,7 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
 
     /**
      * <p>
-     * Register a lister to be notified when the cube model is updated.
+     * Register a listener to be notified when the cube model is updated.
      * </p>
      * <p>
      * This normally happens after a spin animation, or after the user manually rotates a cube side.
@@ -1146,6 +1188,7 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
         }
     }
 
+    //将转动序列字符串解析成整形数组
     private int[] getMove(String sequence) {
         int num = 1;
         int pos = sequence.indexOf(';');
@@ -1397,7 +1440,6 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
         synchronized (animThreadLock) {
             interrupted = true;
         }
-
         if (animThread.isAlive()) {
             animThread.interrupt();
             try {
@@ -1519,6 +1561,7 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
     private void twistLayer(int[][] cube, int layer, int num, boolean middle) {
         if (!middle) {
             // rotate top facelets
+            // 顶部转动时中心位置的小块总是不动，所以只需要变化八个小块
             for (int i = 0; i < 8; i++) {// to buffer
                 twistBuffer[(i + num * 2) % 8] = cube[layer][cycleOrder[i]];
             }
@@ -1600,6 +1643,12 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
                                     fillX[j] += x;
                                     fillY[j] -= y;
                                 }
+                                /*Resources res = getResources();
+                                Bitmap bmp = BitmapFactory.decodeResource(res, R.drawable.green_right);
+                                Rect rect = new Rect(0, bmp.getHeight(), bmp.getWidth(), 0);*/
+
+
+
                                 paint.setColor(cubeColors[cube[i][p * 3 + q]]);
                                 paint.setStyle(Paint.Style.FILL);
 
@@ -1609,6 +1658,8 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
                                 path.lineTo(fillX[2], fillY[2]);
                                 path.lineTo(fillX[3], fillY[3]);
                                 path.close();
+
+                                //canvas.drawBitmap(bmp,null, new RectF(fillX[1], fillY[2], fillX[2], fillY[1]), paint);
 
                                 canvas.drawPath(path, paint);
                                 paint.setStyle(Paint.Style.STROKE);
@@ -1633,6 +1684,12 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
                 } else {
                     paint.setColor(faceletsContourColor);
                 }
+
+               /* Resources res = getResources();
+                Bitmap bmp = BitmapFactory.decodeResource(res, R.drawable.green_right);
+                Rect rect = new Rect(0, bmp.getHeight(), bmp.getWidth(), 0);
+                canvas.drawBitmap(bmp,null, new RectF(fillX[1], fillY[2], fillX[2], fillY[1]), paint);*/
+
                 path.reset();
                 path.moveTo(fillX[0], fillY[0]);
                 path.lineTo(fillX[1], fillY[1]);
@@ -1653,6 +1710,11 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
                     fillY[j] = (int) (cooY[i][j] + (cooY[i ^ 1][k] - cooY[i][j]) * 2.0 / 3.0);
                 }
                 paint.setColor(faceletsContourColor);
+
+                /*Resources res = getResources();
+                  Bitmap bmp = BitmapFactory.decodeResource(res, R.drawable.green_right);
+                  Rect rect = new Rect(0, bmp.getHeight(), bmp.getWidth(), 0);
+                  canvas.drawBitmap(bmp,null, new RectF(fillX[1], fillY[2], fillX[2], fillY[1]), paint);*/
 
                 path.reset();
                 path.moveTo(fillX[0], fillY[0]);
@@ -1697,6 +1759,11 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
                             }
 
                             paint.setColor(darkerColor(cubeColors[cube[i][p * 3 + q]]));
+
+                            /*Resources res = getResources();
+                            Bitmap bmp = BitmapFactory.decodeResource(res, R.drawable.green_right);
+                            Rect rect = new Rect(0, bmp.getHeight(), bmp.getWidth(), 0);
+                            canvas.drawBitmap(bmp,null, new RectF(fillX[1], fillY[2], fillX[2], fillY[1]), paint);*/
 
                             path.reset();
                             path.moveTo(fillX[0], fillY[0]);
@@ -1786,6 +1853,7 @@ public class AnimCube extends SurfaceView implements View.OnTouchListener {
         }
     }
 
+    //通过结果两个数组的组合，可以求得一个面全部16个角点
     private void getCorners(int face, int corner, int[] cornersX, int[] cornersY, double factor1, double factor2) {
         factor1 /= 3.0;
         factor2 /= 3.0;
